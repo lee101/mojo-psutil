@@ -1,14 +1,11 @@
 """Numeric parsing and delta kernels for Linux process metrics."""
 
-from std.algorithm import sync_parallelize
 from std.sys.info import simd_width_of
 
-comptime BPtr = UnsafePointer[UInt8, AnyOrigin[mut=True]]
-comptime IPtr = UnsafePointer[Int64, AnyOrigin[mut=True]]
-comptime FPtr = UnsafePointer[Float64, AnyOrigin[mut=True]]
+comptime BPtr = Pointer[mut=True, T=UInt8, origin=AnyOrigin[mut=True]]
+comptime IPtr = Pointer[mut=True, T=Int64, origin=AnyOrigin[mut=True]]
+comptime FPtr = Pointer[mut=True, T=Float64, origin=AnyOrigin[mut=True]]
 comptime W = simd_width_of[DType.float64]()
-comptime RATE_PARALLEL_THRESHOLD = 1_000_000
-comptime RATE_WORKERS = 16
 
 
 def bp(addr: Int) -> BPtr:
@@ -33,13 +30,15 @@ def counter_rates_range(
 ):
     var i = start
     while i + W <= end:
-        var delta = after.load[width=W](i) - before.load[width=W](i)
+        var delta = after.unsafe_load[width=W](i) - before.unsafe_load[width=W](
+            i
+        )
         delta = max(delta, SIMD[DType.float64, W](0.0))
-        dst.store(i, delta * scale)
+        dst.unsafe_store(i, delta * scale)
         i += W
     while i < end:
-        var delta = after[i] - before[i]
-        dst[i] = max(delta, 0.0) * scale
+        var delta = after[unsafe_offset=i] - before[unsafe_offset=i]
+        dst[unsafe_offset=i] = max(delta, 0.0) * scale
         i += 1
 
 
@@ -58,7 +57,7 @@ def mps_parse_table_i64(
     var src = bp(src_addr)
     var dst = ip(dst_addr)
     for j in range(max_rows * cols):
-        dst[j] = 0
+        dst[unsafe_offset=j] = 0
 
     var row = 0
     var col = 0
@@ -68,7 +67,7 @@ def mps_parse_table_i64(
     var have_digits = False
     var row_has_data = False
     while i < n and row < max_rows:
-        var ch = Int(src[i])
+        var ch = Int(src[unsafe_offset=i])
         if ch >= 48 and ch <= 57:
             var digit = Int64(ch - 48)
             if value > (Int64(9_223_372_036_854_775_807) - digit) // 10:
@@ -79,7 +78,7 @@ def mps_parse_table_i64(
         else:
             if have_digits:
                 if col < cols:
-                    dst[row * cols + col] = value * sign
+                    dst[unsafe_offset=row * cols + col] = value * sign
                 col += 1
                 value = 0
                 sign = 1
@@ -97,7 +96,7 @@ def mps_parse_table_i64(
     if row < max_rows:
         if have_digits:
             if col < cols:
-                dst[row * cols + col] = value * sign
+                dst[unsafe_offset=row * cols + col] = value * sign
             row_has_data = True
         if row_has_data:
             row += 1
@@ -125,7 +124,10 @@ def mps_cpu_percent(
         var total = 0.0
         var idle = 0.0
         for c in range(fields):
-            var delta = after[r * fields + c] - before[r * fields + c]
+            var delta = (
+                after[unsafe_offset=r * fields + c]
+                - before[unsafe_offset=r * fields + c]
+            )
             if delta < 0.0:
                 delta = 0.0
             if c != 8 and c != 9:
@@ -133,12 +135,12 @@ def mps_cpu_percent(
             if c == 3 or c == 4:
                 idle += delta
         if total <= 0.0:
-            dst[r] = 0.0
+            dst[unsafe_offset=r] = 0.0
         else:
             var busy = total - idle
             if busy < 0.0:
                 busy = 0.0
-            dst[r] = 100.0 * busy / total
+            dst[unsafe_offset=r] = 100.0 * busy / total
     return 0
 
 
@@ -162,20 +164,23 @@ def mps_cpu_times_percent(
     for r in range(rows):
         var total = 0.0
         for c in range(fields):
-            var delta = after[r * fields + c] - before[r * fields + c]
+            var delta = (
+                after[unsafe_offset=r * fields + c]
+                - before[unsafe_offset=r * fields + c]
+            )
             if delta < 0.0:
                 delta = 0.0
-            dst[r * fields + c] = delta
+            dst[unsafe_offset=r * fields + c] = delta
             if c != 8 and c != 9:
                 total += delta
         if total <= 0.0:
             for c in range(fields):
-                dst[r * fields + c] = 0.0
+                dst[unsafe_offset=r * fields + c] = 0.0
         else:
             var denominator = max(1.0, total)
             var scale = 100.0 / denominator
             for c in range(fields):
-                dst[r * fields + c] *= scale
+                dst[unsafe_offset=r * fields + c] *= scale
     return 0
 
 
@@ -198,22 +203,8 @@ def mps_counter_rates(
     var dst = fp(dst_addr)
     if elapsed <= 0.0:
         for i in range(n):
-            dst[i] = 0.0
+            dst[unsafe_offset=i] = 0.0
         return 0
     var scale = 1.0 / elapsed
-    if n < RATE_PARALLEL_THRESHOLD:
-        counter_rates_range(before, after, dst, 0, n, scale)
-        return 0
-
-    var chunk_size = (n + RATE_WORKERS - 1) // RATE_WORKERS
-    chunk_size = ((chunk_size + W - 1) // W) * W
-
-    @parameter
-    def work(chunk: Int):
-        var start = chunk * chunk_size
-        var end = min(start + chunk_size, n)
-        if start < end:
-            counter_rates_range(before, after, dst, start, end, scale)
-
-    sync_parallelize[work](RATE_WORKERS)
+    counter_rates_range(before, after, dst, 0, n, scale)
     return 0
