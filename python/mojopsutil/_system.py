@@ -130,22 +130,49 @@ def _meminfo() -> dict[bytes, int]:
     return result
 
 
+def _meminfo_value(data: bytes, key: bytes) -> int | None:
+    start = data.find(key)
+    if start < 0:
+        return None
+    start += len(key)
+    size = len(data)
+    while start < size and data[start] in b" \t":
+        start += 1
+    end = start
+    while end < size and 48 <= data[end] <= 57:
+        end += 1
+    if end == start:
+        return None
+    return int(data[start:end]) * 1024
+
+
 def virtual_memory():
-    mem = _meminfo()
-    total = mem[b"MemTotal:"]
-    free = mem[b"MemFree:"]
-    buffers = mem.get(b"Buffers:", 0)
-    cached = mem.get(b"Cached:", 0) + mem.get(b"SReclaimable:", 0)
-    shared = mem.get(b"Shmem:", mem.get(b"MemShared:", 0))
-    active = mem.get(b"Active:", 0)
-    inactive = mem.get(
-        b"Inactive:",
-        mem.get(b"Inact_dirty:", 0)
-        + mem.get(b"Inact_clean:", 0)
-        + mem.get(b"Inact_laundry:", 0),
+    data = _read(f"{PROCFS_PATH}/meminfo")
+    total = _meminfo_value(data, b"MemTotal:")
+    free = _meminfo_value(data, b"MemFree:")
+    if total is None:
+        raise KeyError(b"MemTotal:")
+    if free is None:
+        raise KeyError(b"MemFree:")
+    buffers = _meminfo_value(data, b"Buffers:") or 0
+    cached = (_meminfo_value(data, b"Cached:") or 0) + (
+        _meminfo_value(data, b"SReclaimable:") or 0
     )
-    slab = mem.get(b"Slab:", 0)
-    available = mem.get(b"MemAvailable:", free + buffers + cached)
+    shared = _meminfo_value(data, b"Shmem:")
+    if shared is None:
+        shared = _meminfo_value(data, b"MemShared:") or 0
+    active = _meminfo_value(data, b"Active:") or 0
+    inactive = _meminfo_value(data, b"Inactive:")
+    if inactive is None:
+        inactive = (
+            (_meminfo_value(data, b"Inact_dirty:") or 0)
+            + (_meminfo_value(data, b"Inact_clean:") or 0)
+            + (_meminfo_value(data, b"Inact_laundry:") or 0)
+        )
+    slab = _meminfo_value(data, b"Slab:") or 0
+    available = _meminfo_value(data, b"MemAvailable:")
+    if available is None:
+        available = free + buffers + cached
     if available <= 0:
         available = free + buffers + cached
     if available > total:

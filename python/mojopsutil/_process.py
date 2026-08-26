@@ -91,17 +91,16 @@ class Process:
         )
 
     def memory_info(self):
-        vms, rss, shared, text, lib, data, dirty = map(
-            int, self._read("statm").split()[:7]
-        )
+        fields = self._read("statm").split()
+        page_size = _PAGE_SIZE
         return pmem(
-            rss * _PAGE_SIZE,
-            vms * _PAGE_SIZE,
-            shared * _PAGE_SIZE,
-            text * _PAGE_SIZE,
-            lib * _PAGE_SIZE,
-            data * _PAGE_SIZE,
-            dirty * _PAGE_SIZE,
+            int(fields[1]) * page_size,
+            int(fields[0]) * page_size,
+            int(fields[2]) * page_size,
+            int(fields[3]) * page_size,
+            int(fields[4]) * page_size,
+            int(fields[5]) * page_size,
+            int(fields[6]) * page_size,
         )
 
     def memory_percent(self, memtype="rss"):

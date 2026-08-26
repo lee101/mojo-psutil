@@ -73,12 +73,12 @@ psutil 7.2.2.
 
 | Operation | Input | Mojo | Upstream/reference | Speedup | Compared with |
 |---|---:|---:|---:|---:|---|
-| `cpu_times(percpu=True)` | 500 calls | 0.332 ms | 0.325 ms | 0.98x | psutil |
-| `virtual_memory()` | 500 calls | 0.058 ms | 0.055 ms | 0.94x | psutil |
-| `Process.memory_info()` | 2000 calls | 0.024 ms | 0.024 ms | 1.01x | psutil |
-| `counter_rates()` | 5M counters | 19.082 ms | 78.686 ms | 4.12x | NumPy |
-| CPU percent histories | 400K x 10 fields | 7.723 ms | 55.868 ms | 7.23x | NumPy |
-| Numeric `/proc` table parse | 200K x 8 integers | 35.368 ms | 456.875 ms | 12.92x | pure Python |
+| `cpu_times(percpu=True)` | 500 calls | 0.364 ms | 0.369 ms | 1.01x | psutil |
+| `virtual_memory()` | 500 calls | 0.051 ms | 0.057 ms | 1.12x | psutil |
+| `Process.memory_info()` | 2000 calls | 0.022 ms | 0.023 ms | 1.06x | psutil |
+| `counter_rates()` | 5M counters | 19.429 ms | 68.731 ms | 3.54x | NumPy |
+| CPU percent histories | 400K x 10 fields | 10.258 ms | 58.070 ms | 5.66x | NumPy |
+| Numeric `/proc` table parse | 200K x 8 integers | 36.153 ms | 449.337 ms | 12.43x | pure Python |
 
 The live sampling calls are now at or near psutil parity. Short records are
 parsed directly without constructing NumPy arrays or crossing the FFI boundary.

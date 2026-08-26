@@ -1,11 +1,14 @@
 """Numeric parsing and delta kernels for Linux process metrics."""
 
+from max.algorithm import parallelize
 from std.sys.info import simd_width_of
 
 comptime BPtr = Pointer[mut=True, T=UInt8, origin=AnyOrigin[mut=True]]
 comptime IPtr = Pointer[mut=True, T=Int64, origin=AnyOrigin[mut=True]]
 comptime FPtr = Pointer[mut=True, T=Float64, origin=AnyOrigin[mut=True]]
 comptime W = simd_width_of[DType.float64]()
+comptime COUNTER_PARALLEL_THRESHOLD = 1_000_000
+comptime COUNTER_PARALLEL_CHUNKS = 16
 
 
 def bp(addr: Int) -> BPtr:
@@ -30,11 +33,11 @@ def counter_rates_range(
 ):
     var i = start
     while i + W <= end:
-        var delta = after.unsafe_load[width=W](i) - before.unsafe_load[width=W](
-            i
-        )
+        var delta = after.unsafe_load[width=W, alignment=1](i) - before.unsafe_load[
+            width=W, alignment=1
+        ](i)
         delta = max(delta, SIMD[DType.float64, W](0.0))
-        dst.unsafe_store(i, delta * scale)
+        dst.unsafe_store[alignment=1](i, delta * scale)
         i += W
     while i < end:
         var delta = after[unsafe_offset=i] - before[unsafe_offset=i]
@@ -206,5 +209,20 @@ def mps_counter_rates(
             dst[unsafe_offset=i] = 0.0
         return 0
     var scale = 1.0 / elapsed
-    counter_rates_range(before, after, dst, 0, n, scale)
+    if n >= COUNTER_PARALLEL_THRESHOLD:
+        var chunk_size = (
+            (n + COUNTER_PARALLEL_CHUNKS - 1) // COUNTER_PARALLEL_CHUNKS
+        )
+        chunk_size = ((chunk_size + W - 1) // W) * W
+        var chunks = (n + chunk_size - 1) // chunk_size
+
+        @__parameter
+        def work(chunk: Int):
+            var start = chunk * chunk_size
+            var end = min(start + chunk_size, n)
+            counter_rates_range(before, after, dst, start, end, scale)
+
+        parallelize[work](chunks, chunks)
+    else:
+        counter_rates_range(before, after, dst, 0, n, scale)
     return 0
