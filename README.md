@@ -103,8 +103,11 @@ Inputs and outputs are caller-owned, C-contiguous NumPy arrays. Parsed counters
 use row-major `int64` tables, while CPU deltas and rates use row-major
 `float64`. Mojo allocates no cross-language memory. The counter-rate kernel
 uses the host's native `float64` SIMD width with a scalar remainder loop. It
-stays serial below one million elements and uses 16 synchronous independent
-chunks for larger arrays. One compilation unit contains the parser, CPU
+stays single-pass below one million elements and walks 16 sequential chunks
+above it. Rate computation is a pure streaming elementwise op -- one subtract
+and one multiply per 16 bytes read plus 8 bytes written, about 0.07 flops per
+byte -- so it is entirely bandwidth bound and gains nothing from splitting it
+across threads. One compilation unit contains the parser, CPU
 percentage kernels, and rate kernel, and `build/build.sh` compiles it with
 `mojo build --emit shared-lib`.
 

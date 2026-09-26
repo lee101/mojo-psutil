@@ -1,14 +1,13 @@
 """Numeric parsing and delta kernels for Linux process metrics."""
 
-from max.algorithm import parallelize
 from std.sys.info import simd_width_of
 
 comptime BPtr = Pointer[mut=True, T=UInt8, origin=AnyOrigin[mut=True]]
 comptime IPtr = Pointer[mut=True, T=Int64, origin=AnyOrigin[mut=True]]
 comptime FPtr = Pointer[mut=True, T=Float64, origin=AnyOrigin[mut=True]]
 comptime W = simd_width_of[DType.float64]()
-comptime COUNTER_PARALLEL_THRESHOLD = 1_000_000
-comptime COUNTER_PARALLEL_CHUNKS = 16
+comptime COUNTER_CHUNK_THRESHOLD = 1_000_000
+comptime COUNTER_CHUNKS = 16
 
 
 def bp(addr: Int) -> BPtr:
@@ -209,20 +208,15 @@ def mps_counter_rates(
             dst[unsafe_offset=i] = 0.0
         return 0
     var scale = 1.0 / elapsed
-    if n >= COUNTER_PARALLEL_THRESHOLD:
-        var chunk_size = (
-            (n + COUNTER_PARALLEL_CHUNKS - 1) // COUNTER_PARALLEL_CHUNKS
-        )
+    if n >= COUNTER_CHUNK_THRESHOLD:
+        var chunk_size = ((n + COUNTER_CHUNKS - 1) // COUNTER_CHUNKS)
         chunk_size = ((chunk_size + W - 1) // W) * W
         var chunks = (n + chunk_size - 1) // chunk_size
-
-        @__parameter
-        def work(chunk: Int):
+        for chunk in range(chunks):
             var start = chunk * chunk_size
-            var end = min(start + chunk_size, n)
-            counter_rates_range(before, after, dst, start, end, scale)
-
-        parallelize[work](chunks, chunks)
+            counter_rates_range(
+                before, after, dst, start, min(start + chunk_size, n), scale
+            )
     else:
         counter_rates_range(before, after, dst, 0, n, scale)
     return 0

@@ -47,7 +47,7 @@ def test_cpu_kernels_validate_shape_and_handle_empty_arrays(kernel):
 
 
 @pytest.mark.parametrize("size", [999_999, 1_000_003])
-def test_counter_rates_serial_and_parallel_tails_match_numpy(size):
+def test_counter_rates_serial_and_chunked_tails_match_numpy(size):
     before = np.arange(size, dtype=np.float64)
     after = before + np.linspace(0, 10, size)
     got = counter_rates(before, after, 0.25)
